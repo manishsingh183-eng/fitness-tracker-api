@@ -1,5 +1,7 @@
 using FitnessTracker.Api.Data;
 using Microsoft.EntityFrameworkCore;
+using FitnessTracker.Api.Dtos;
+using FitnessTracker.Api.Models;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -42,6 +44,37 @@ app.MapGet("/weatherforecast", () =>
 })
 .WithName("GetWeatherForecast")
 .WithOpenApi();
+
+// AUTHENTICATION ENDPOINTS
+
+// Endpoint for User Registration
+app.MapPost("/auth/register", async (UserRegisterDto request, DataContext context) =>
+{
+    var newUser = new User
+    {
+        Username = request.Username,
+        Email = request.Email,
+        PasswordHash = BCrypt.Net.BCrypt.HashPassword(request.Password)
+    };
+
+    context.Users.Add(newUser);
+    await context.SaveChangesAsync();
+
+    return Results.Ok(newUser);
+});
+
+// Endpoint for User Login
+app.MapPost("/auth/login", async (UserLoginDto request, DataContext context) =>
+{
+    var user = await context.Users.FirstOrDefaultAsync(u => u.Username == request.Username);
+
+    if (user == null || !BCrypt.Net.BCrypt.Verify(request.Password, user.PasswordHash))
+    {
+        return Results.BadRequest("Invalid username or password.");
+    }
+
+    return Results.Ok("Login successful!");
+});
 
 app.Run();
 
