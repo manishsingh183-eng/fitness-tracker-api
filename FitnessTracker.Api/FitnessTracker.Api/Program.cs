@@ -7,13 +7,39 @@ using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.OpenApi.Models;
 
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
 // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
 builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
+builder.Services.AddSwaggerGen(options =>
+{
+    options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
+    {
+        In = ParameterLocation.Header,
+        Description = "Please enter a valid token",
+        Name = "Authorization",
+        Type = SecuritySchemeType.Http,
+        BearerFormat = "JWT",
+        Scheme = "Bearer"
+    });
+    options.AddSecurityRequirement(new OpenApiSecurityRequirement
+    {
+        {
+            new OpenApiSecurityScheme
+            {
+                Reference = new OpenApiReference
+                {
+                    Type = ReferenceType.SecurityScheme,
+                    Id = "Bearer"
+                }
+            },
+            new string[]{}
+        }
+    });
+});
 builder.Services.AddDbContext<DataContext>(options =>
 {
     options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection"));
@@ -48,25 +74,7 @@ if (app.Environment.IsDevelopment())
 
 app.UseHttpsRedirection();
 
-var summaries = new[]
-{
-    "Freezing", "Bracing", "Chilly", "Cool", "Mild", "Warm", "Balmy", "Hot", "Sweltering", "Scorching"
-};
 
-app.MapGet("/weatherforecast", () =>
-{
-    var forecast = Enumerable.Range(1, 5).Select(index =>
-        new WeatherForecast
-        (
-            DateOnly.FromDateTime(DateTime.Now.AddDays(index)),
-            Random.Shared.Next(-20, 55),
-            summaries[Random.Shared.Next(summaries.Length)]
-        ))
-        .ToArray();
-    return forecast;
-})
-.WithName("GetWeatherForecast")
-.WithOpenApi();
 
 // AUTHENTICATION ENDPOINTS
 
@@ -125,6 +133,51 @@ app.MapPost("/auth/login", async (UserLoginDto request, DataContext context, ICo
 // PROTECTED ENDPOINT
 app.MapGet("/workouts", () => "List of workouts for the authenticated user.")
     .RequireAuthorization();
+
+// WORKOUT ENDPOINTS
+
+app.MapPost("/workouts", async (CreateWorkoutSessionDto request, DataContext context, HttpContext http) =>
+{
+    // 1. Get the user's ID from the token claims
+    var userIdClaim = http.User.Claims.FirstOrDefault(c => c.Type == ClaimTypes.NameIdentifier);
+    if (userIdClaim == null)
+    {
+        return Results.Unauthorized();
+    }
+
+    var userId = int.Parse(userIdClaim.Value);
+    var user = await context.Users.FindAsync(userId);
+    if (user == null)
+    {
+        return Results.NotFound("User not found.");
+    }
+
+    // 2. Create the main WorkoutSession object
+    var newSession = new WorkoutSession
+    {
+        Date = request.Date,
+        User = user // Link the session to the authenticated user
+    };
+
+    // 3. Create the SetLog objects from the DTO and link them to the session
+    foreach (var setDto in request.Sets)
+    {
+        var newSet = new SetLog
+        {
+            ExerciseName = setDto.ExerciseName,
+            Reps = setDto.Reps,
+            Weight = setDto.Weight,
+            WorkoutSession = newSession // Link the set to the new session
+        };
+        context.SetLogs.Add(newSet);
+    }
+
+    // 4. Add the session itself and save everything to the database
+    context.WorkoutSessions.Add(newSession);
+    await context.SaveChangesAsync();
+
+    return Results.Created($"/workouts/{newSession.Id}", newSession);
+}).RequireAuthorization(); // 5. Protect this endpoint!
 
 app.Run();
 
