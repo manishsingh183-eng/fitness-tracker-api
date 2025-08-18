@@ -2,6 +2,11 @@ using FitnessTracker.Api.Data;
 using Microsoft.EntityFrameworkCore;
 using FitnessTracker.Api.Dtos;
 using FitnessTracker.Api.Models;
+using Microsoft.IdentityModel.Tokens;
+using System.IdentityModel.Tokens.Jwt;
+using System.Security.Claims;
+using System.Text;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -14,7 +19,25 @@ builder.Services.AddDbContext<DataContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection"));
 });
 
+// Add Authentication and Authorization
+builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(options =>
+    {
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuerSigningKey = true,
+            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8
+                .GetBytes(builder.Configuration.GetSection("AppSettings:Token").Value!)),
+            ValidateIssuer = false,
+            ValidateAudience = false
+        };
+    });
+builder.Services.AddAuthorization();
+
 var app = builder.Build();
+
+app.UseAuthentication();
+app.UseAuthorization();
 
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
@@ -64,7 +87,8 @@ app.MapPost("/auth/register", async (UserRegisterDto request, DataContext contex
 });
 
 // Endpoint for User Login
-app.MapPost("/auth/login", async (UserLoginDto request, DataContext context) =>
+// Endpoint for User Login
+app.MapPost("/auth/login", async (UserLoginDto request, DataContext context, IConfiguration config) =>
 {
     var user = await context.Users.FirstOrDefaultAsync(u => u.Username == request.Username);
 
@@ -73,8 +97,34 @@ app.MapPost("/auth/login", async (UserLoginDto request, DataContext context) =>
         return Results.BadRequest("Invalid username or password.");
     }
 
-    return Results.Ok("Login successful!");
+    // User is valid, create a JWT
+    var claims = new[]
+    {
+        new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
+        new Claim(ClaimTypes.Name, user.Username)
+    };
+
+    var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(config.GetSection("AppSettings:Token").Value!));
+
+    var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha512Signature);
+
+    var tokenDescriptor = new SecurityTokenDescriptor
+    {
+        Subject = new ClaimsIdentity(claims),
+        Expires = DateTime.Now.AddDays(1),
+        SigningCredentials = creds
+    };
+
+    var tokenHandler = new JwtSecurityTokenHandler();
+
+    var token = tokenHandler.CreateToken(tokenDescriptor);
+
+    return Results.Ok(new { token = tokenHandler.WriteToken(token) });
 });
+
+// PROTECTED ENDPOINT
+app.MapGet("/workouts", () => "List of workouts for the authenticated user.")
+    .RequireAuthorization();
 
 app.Run();
 
