@@ -12,5 +12,6 @@ namespace FitnessTracker.Api.Data
         public DbSet<User> Users { get; set; }
         public DbSet<WorkoutSession> WorkoutSessions { get; set; }
         public DbSet<SetLog> SetLogs { get; set; }
+        public DbSet<FoodLog> FoodLogs { get; set; }
     }
 }

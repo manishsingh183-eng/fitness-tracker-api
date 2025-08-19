@@ -187,5 +187,64 @@ app.MapDelete("/workouts/{id}", async (int id, DataContext context, HttpContext 
     return Results.NoContent();
 }).RequireAuthorization();
 
+// DIET ENDPOINTS
+
+app.MapPost("/foodlogs", async (CreateFoodLogDto request, DataContext context, HttpContext http) =>
+{
+    var userIdClaim = http.User.Claims.FirstOrDefault(c => c.Type == ClaimTypes.NameIdentifier);
+    if (userIdClaim == null) return Results.Unauthorized();
+    var userId = int.Parse(userIdClaim.Value);
+
+    var foodLog = new FoodLog
+    {
+        FoodName = request.FoodName,
+        Calories = request.Calories,
+        Protein = request.Protein,
+        Carbs = request.Carbs,
+        Fat = request.Fat,
+        DateLogged = request.DateLogged,
+        UserId = userId
+    };
+
+    context.FoodLogs.Add(foodLog);
+    await context.SaveChangesAsync();
+
+    var foodLogDto = new FoodLogDto
+    {
+        Id = foodLog.Id,
+        FoodName = foodLog.FoodName,
+        Calories = foodLog.Calories,
+        Protein = foodLog.Protein,
+        Carbs = foodLog.Carbs,
+        Fat = foodLog.Fat,
+        DateLogged = foodLog.DateLogged
+    };
+
+    return Results.Created($"/foodlogs/{foodLog.Id}", foodLogDto);
+}).RequireAuthorization();
+
+app.MapGet("/foodlogs/{date}", async (DateTime date, DataContext context, HttpContext http) =>
+{
+    var userIdClaim = http.User.Claims.FirstOrDefault(c => c.Type == ClaimTypes.NameIdentifier);
+    if (userIdClaim == null) return Results.Unauthorized();
+    var userId = int.Parse(userIdClaim.Value);
+
+    var foodLogs = await context.FoodLogs
+        .Where(f => f.UserId == userId && f.DateLogged.Date == date.Date)
+        .Select(f => new FoodLogDto
+        {
+            Id = f.Id,
+            FoodName = f.FoodName,
+            Calories = f.Calories,
+            Protein = f.Protein,
+            Carbs = f.Carbs,
+            Fat = f.Fat,
+            DateLogged = f.DateLogged
+        })
+        .ToListAsync();
+
+    return Results.Ok(foodLogs);
+}).RequireAuthorization();
+
 // 5. Run the application
 app.Run();
