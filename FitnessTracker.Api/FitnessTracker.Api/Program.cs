@@ -12,6 +12,20 @@ using System.Text;
 var builder = WebApplication.CreateBuilder(args);
 
 // 1. Configure services
+
+// --- ADD THIS CORS POLICY DEFINITION ---
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("AllowSpecificOrigin",
+        policy =>
+        {
+            policy.WithOrigins("http://localhost:8080") // Your frontend's address
+                  .AllowAnyHeader()
+                  .AllowAnyMethod();
+        });
+});
+// --- END OF CORS POLICY DEFINITION ---
+
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(options =>
 {
@@ -56,8 +70,10 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     });
 builder.Services.AddAuthorization();
 
+
 // 2. Build the application
 var app = builder.Build();
+
 
 // 3. Configure the HTTP request pipeline
 if (app.Environment.IsDevelopment())
@@ -66,8 +82,13 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 app.UseHttpsRedirection();
+
+// Use the CORS policy you defined above
+app.UseCors("AllowSpecificOrigin");
+
 app.UseAuthentication();
 app.UseAuthorization();
+
 
 // 4. Define Endpoints
 
@@ -109,6 +130,7 @@ app.MapPost("/auth/login", async (UserLoginDto request, DataContext context, ICo
     var token = tokenHandler.CreateToken(tokenDescriptor);
     return Results.Ok(new { token = tokenHandler.WriteToken(token) });
 });
+
 
 // WORKOUT ENDPOINTS
 app.MapPost("/workouts", async (CreateWorkoutSessionDto request, DataContext context, HttpContext http) =>
@@ -187,8 +209,8 @@ app.MapDelete("/workouts/{id}", async (int id, DataContext context, HttpContext 
     return Results.NoContent();
 }).RequireAuthorization();
 
-// DIET ENDPOINTS
 
+// DIET ENDPOINTS
 app.MapPost("/foodlogs", async (CreateFoodLogDto request, DataContext context, HttpContext http) =>
 {
     var userIdClaim = http.User.Claims.FirstOrDefault(c => c.Type == ClaimTypes.NameIdentifier);
@@ -205,10 +227,8 @@ app.MapPost("/foodlogs", async (CreateFoodLogDto request, DataContext context, H
         DateLogged = request.DateLogged,
         UserId = userId
     };
-
     context.FoodLogs.Add(foodLog);
     await context.SaveChangesAsync();
-
     var foodLogDto = new FoodLogDto
     {
         Id = foodLog.Id,
@@ -219,7 +239,6 @@ app.MapPost("/foodlogs", async (CreateFoodLogDto request, DataContext context, H
         Fat = foodLog.Fat,
         DateLogged = foodLog.DateLogged
     };
-
     return Results.Created($"/foodlogs/{foodLog.Id}", foodLogDto);
 }).RequireAuthorization();
 
@@ -242,9 +261,9 @@ app.MapGet("/foodlogs/{date}", async (DateTime date, DataContext context, HttpCo
             DateLogged = f.DateLogged
         })
         .ToListAsync();
-
     return Results.Ok(foodLogs);
 }).RequireAuthorization();
+
 
 // 5. Run the application
 app.Run();
